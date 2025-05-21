@@ -14,212 +14,142 @@ export default function ChatLayout() {
   const { selectedFriend, setMessages, addMessage } = useChatStore()
   const router = useRouter()
   const { toast } = useToast()
+
   const [socket, setSocket] = useState(null)
   const [socketConnected, setSocketConnected] = useState(false)
 
-  // Initialize socket connection
+  // 1. Create socket connection
   useEffect(() => {
     if (!user) return
 
-    // Get the socket URL from environment variable
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3005"
-    console.log("Connecting to Socket.io server at:", socketUrl)
+    const socketUrl =
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3005"
 
-    // Connect to Socket.io server with explicit configuration
-    const socketInstance = io(socketUrl, {
-      auth: {
-        userId: user.id,
-      },
-      transports: ["websocket", "polling"], // Try WebSocket first, fallback to polling
+    const s = io(socketUrl, {
+      auth: { userId: user.id },
+      transports: ["websocket", "polling"],
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      timeout: 20000, // Increase timeout
+      timeout: 20000,
     })
 
-    // Set up event listeners
-    socketInstance.on("connect", () => {
-      console.log("Connected to Socket.io server with ID:", socketInstance.id)
+    s.on("connect", () => {
       setSocketConnected(true)
-      toast({
-        title: "Connected",
-        description: "Real-time chat connection established",
-      })
+      toast({ title: "Connected", description: "Real-time chat ready" })
     })
 
-    socketInstance.on("connect_error", (error) => {
-      console.error("Socket connection error:", error)
+    s.on("connect_error", (err) => {
       setSocketConnected(false)
       toast({
-        title: "Connection Error",
-        description: "Failed to connect to chat server: " + error.message,
+        title: "Connection error",
+        description: err.message,
         variant: "destructive",
       })
     })
 
-    socketInstance.on("disconnect", (reason) => {
-      console.log("Disconnected from Socket.io server:", reason)
+    s.on("disconnect", (reason) => {
       setSocketConnected(false)
       toast({
         title: "Disconnected",
-        description: "Chat connection lost: " + reason,
+        description: reason,
         variant: "destructive",
       })
     })
 
-    socketInstance.on("message", (message) => {
-      console.log("Received message via socket:", message)
+    setSocket(s)
 
-      // Check if this message belongs to the current conversation
-      if (selectedFriend && (message.sender_id === selectedFriend.id || message.receiver_id === selectedFriend.id)) {
-        console.log("Adding message to current conversation")
-        addMessage(message)
-      } else {
-        console.log("Message is for a different conversation")
-        // Optionally show a notification for messages from other conversations
-        if (message.sender_id !== user.id) {
-          toast({
-            title: "New Message",
-            description: "You received a new message from another conversation",
-          })
-        }
-      }
-    })
-
-    // Save socket instance
-    setSocket(socketInstance)
-
-    // Clean up on unmount
     return () => {
-      console.log("Cleaning up socket connection")
-      socketInstance.disconnect()
+      s.disconnect()
     }
-  }, [user, addMessage, toast])
+  }, [user])
 
-  // Update socket event handler when selectedFriend changes
+  // 2. Listen for incoming messages
   useEffect(() => {
     if (!socket) return
 
-    const messageHandler = (message) => {
-      console.log("Received message via socket:", message)
-
-      // Check if this message belongs to the current conversation
-      if (selectedFriend && (message.sender_id === selectedFriend.id || message.receiver_id === selectedFriend.id)) {
-        console.log("Adding message to current conversation")
-        addMessage(message)
-      } else {
-        console.log("Message is for a different conversation")
-        // Optionally show a notification for messages from other conversations
-        if (message.sender_id !== user?.id) {
-          toast({
-            title: "New Message",
-            description: "You received a new message from another conversation",
-          })
-        }
+    const handleIncoming = (msg) => {
+      if (
+        selectedFriend &&
+        (msg.sender_id === selectedFriend.id ||
+          msg.receiver_id === selectedFriend.id)
+      ) {
+        addMessage(msg)
+      } else if (msg.sender_id !== user?.id) {
+        toast({
+          title: "New message",
+          description: "You received a message in another chat",
+        })
       }
     }
 
-    // Remove previous listener and add updated one
-    socket.off("message")
-    socket.on("message", messageHandler)
+    socket.on("message", handleIncoming)
 
     return () => {
-      socket.off("message", messageHandler)
+      socket.off("message", handleIncoming)
     }
-  }, [socket, selectedFriend, addMessage, toast, user])
+  }, [socket, selectedFriend, user])
 
-  // Load messages when a friend is selected
+  // 3. Load message history when a friend is selected
   useEffect(() => {
     if (!selectedFriend) return
 
-    const loadMessages = async () => {
+    const fetchMessages = async () => {
       try {
-        const response = await fetch(`/api/messages/${selectedFriend.id}`)
-        if (response.ok) {
-          const data = await response.json()
-          setMessages(data.messages)
+        const res = await fetch(`/api/messages/${selectedFriend.id}`)
+        if (res.ok) {
+          const { messages } = await res.json()
+          setMessages(messages)
         }
-      } catch (error) {
-        console.error("Error loading messages:", error)
+      } catch (err) {
+        console.error("Error loading messages:", err)
       }
     }
 
-    loadMessages()
-  }, [selectedFriend, setMessages])
+    fetchMessages()
+  }, [selectedFriend])
 
-  const handleLogout = async () => {
-    try {
-      // Disconnect socket
-      if (socket) {
-        socket.disconnect()
-      }
-
-      // Call logout API
-      await fetch("/api/auth/logout", {
-        method: "POST",
-      })
-
-      // Update client state
-      logout()
-
-      toast({
-        title: "Logged out",
-        description: "You have been logged out successfully.",
-      })
-
-      router.push("/")
-    } catch (error) {
-      console.error("Logout error:", error)
-    }
-  }
-
+  // 4. Send message
   const handleSendMessage = async (content) => {
-    if (!selectedFriend || !socket) return
+    if (!socket || !selectedFriend || !content.trim()) return
 
     try {
-      console.log("Sending message to:", selectedFriend.id, "Content:", content)
-
-      // Create message object
-      const messageObj = {
-        sender_id: user.id,
-        receiver_id: selectedFriend.id,
-        content,
-        created_at: new Date().toISOString(),
-      }
-
-      // Add message to UI immediately (optimistic update)
-      addMessage(messageObj)
-
-      // Send message via socket
       socket.emit("sendMessage", {
         receiverId: selectedFriend.id,
         content,
       })
 
-      // Also save via API for redundancy
+      // Let server echo the message back, no optimistic update
       await fetch("/api/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          receiverId: selectedFriend.id,
-          content,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ receiverId: selectedFriend.id, content }),
       })
-    } catch (error) {
-      console.error("Error sending message:", error)
+    } catch (err) {
+      console.error("Send error:", err)
       toast({
-        title: "Error",
-        description: "Failed to send message. Please try again.",
+        title: "Send error",
+        description: "Could not send message. Try again.",
         variant: "destructive",
       })
     }
   }
 
+  // 5. Logout
+  const handleLogout = async () => {
+    if (socket) socket.disconnect()
+    await fetch("/api/auth/logout", { method: "POST" })
+    logout()
+    toast({ title: "Logged out", description: "See you again!" })
+    router.push("/")
+  }
+
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar onLogout={handleLogout} />
-      <ChatWindow onSendMessage={handleSendMessage} socketConnected={socketConnected} />
+      <ChatWindow
+        onSendMessage={handleSendMessage}
+        socketConnected={socketConnected}
+      />
     </div>
   )
 }

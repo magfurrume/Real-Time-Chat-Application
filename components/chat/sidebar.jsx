@@ -230,7 +230,7 @@ export default function Sidebar({ onLogout }) {
   }
 
   return (
-    <div className="w-80 bg-white border-r flex flex-col h-full">
+    <div className="w-full sm:w-80 bg-white border-r flex flex-col h-full max-h-screen overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b flex justify-between items-center">
         <div>
@@ -323,7 +323,7 @@ export default function Sidebar({ onLogout }) {
                   <div
                     key={friend.id}
                     className={`flex items-center p-3 rounded cursor-pointer ${
-                      selectedFriend?.id === friend.id ? "bg-primary text-primary-foreground" : "hover:bg-gray-100"
+                      selectedFriend?.id === friend.id ? "bg-blue-400 text-primary-foreground" : "hover:bg-gray-100"
                     }`}
                     onClick={() => setSelectedFriend(friend)}
                   >
