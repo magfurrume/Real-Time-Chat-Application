@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useAuthStore } from "@/store/auth-store"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
@@ -11,12 +11,20 @@ import { io } from "socket.io-client"
 
 export default function ChatLayout() {
   const { user, logout } = useAuthStore()
-  const { selectedFriend, setMessages, addMessage } = useChatStore()
+  const {
+    selectedFriend,
+    setMessages,
+    addMessage,
+    messages,
+  } = useChatStore()
   const router = useRouter()
   const { toast } = useToast()
 
   const [socket, setSocket] = useState(null)
   const [socketConnected, setSocketConnected] = useState(false)
+
+  // To prevent adding duplicate messages
+  const messageIdsRef = useRef(new Set())
 
   // 1. Create socket connection
   useEffect(() => {
@@ -68,17 +76,21 @@ export default function ChatLayout() {
     if (!socket) return
 
     const handleIncoming = (msg) => {
-      if (
-        selectedFriend &&
-        (msg.sender_id === selectedFriend.id ||
-          msg.receiver_id === selectedFriend.id)
-      ) {
-        addMessage(msg)
-      } else if (msg.sender_id !== user?.id) {
-        toast({
-          title: "New message",
-          description: "You received a message in another chat",
-        })
+      if (!messageIdsRef.current.has(msg.id)) {
+        messageIdsRef.current.add(msg.id)
+
+        if (
+          selectedFriend &&
+          (msg.sender_id === selectedFriend.id ||
+            msg.receiver_id === selectedFriend.id)
+        ) {
+          addMessage(msg)
+        } else if (msg.sender_id !== user?.id) {
+          toast({
+            title: "New message",
+            description: "You received a message in another chat",
+          })
+        }
       }
     }
 
@@ -87,7 +99,7 @@ export default function ChatLayout() {
     return () => {
       socket.off("message", handleIncoming)
     }
-  }, [socket, selectedFriend, user])
+  }, [socket, selectedFriend, user, addMessage])
 
   // 3. Load message history when a friend is selected
   useEffect(() => {
@@ -98,6 +110,10 @@ export default function ChatLayout() {
         const res = await fetch(`/api/messages/${selectedFriend.id}`)
         if (res.ok) {
           const { messages } = await res.json()
+
+          // Add message IDs to prevent duplicates
+          messages.forEach((m) => messageIdsRef.current.add(m.id))
+
           setMessages(messages)
         }
       } catch (err) {
@@ -109,30 +125,25 @@ export default function ChatLayout() {
   }, [selectedFriend])
 
   // 4. Send message
-  const handleSendMessage = async (content) => {
-    if (!socket || !selectedFriend || !content.trim()) return
+  const handleSendMessage = (content) => {
+    if (!selectedFriend || !content.trim()) return
 
-    try {
-      socket.emit("sendMessage", {
-        receiverId: selectedFriend.id,
-        content,
-      })
-
-      // Let server echo the message back, no optimistic update
-      await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ receiverId: selectedFriend.id, content }),
-      })
-    } catch (err) {
-      console.error("Send error:", err)
+    if (!socket) {
       toast({
-        title: "Send error",
-        description: "Could not send message. Try again.",
+        title: "Socket not connected",
+        description: "Unable to send message",
         variant: "destructive",
       })
+      return
     }
+
+    socket.emit("sendMessage", {
+      receiverId: selectedFriend.id,
+      content,
+    })
   }
+
+
 
   // 5. Logout
   const handleLogout = async () => {

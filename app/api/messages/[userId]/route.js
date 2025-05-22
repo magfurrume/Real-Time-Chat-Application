@@ -10,9 +10,7 @@ export async function GET(request, context) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
     }
 
-    // Correctly extract userId from context.params
-    // const friendId = context.params.userId
-        const url = new URL(request.url)
+    const url = new URL(request.url)
     const pathSegments = url.pathname.split("/")
     const friendId = pathSegments[pathSegments.length - 1]
 

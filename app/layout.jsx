@@ -6,8 +6,8 @@ import { Toaster } from "@/components/ui/toaster"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata = {
-  title: "Auth App",
-  description: "Minimal authentication system",
+  title: "Real Time Chat App",
+  description: "Real Time Chat Application",
     generator: 'v0.dev'
 }
 
