@@ -24,8 +24,20 @@ export const useChatStore = create((set) => ({
   // Add a new message
   addMessage: (message) =>
     set((state) => ({
-      messages: [...state.messages, message],
+      // Prevent adding duplicate messages if already present (e.g. optimistic vs server confirmation)
+      messages: state.messages.find(m => m.id === message.id) ? state.messages : [...state.messages, message],
     })),
+
+  // Update a message (e.g., for status like 'sent', 'delivered', or if temporary ID needs to be replaced)
+  updateMessage: (updatedMessage) =>
+    set((state) => ({
+      messages: state.messages.map((message) =>
+        message.id === updatedMessage.id || (message.tempId && message.tempId === updatedMessage.tempId)
+          ? { ...message, ...updatedMessage, tempId: undefined } // Remove tempId after update
+          : message
+      ),
+    })),
+
 
   // Set loading states
   setLoadingFriends: (isLoading) => set({ isLoadingFriends: isLoading }),

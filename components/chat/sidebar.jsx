@@ -7,29 +7,33 @@ import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, UserPlus, LogOut, User, UserCheck, X, RefreshCw, MessageSquareText, PanelLeftClose } from "lucide-react" // Added PanelLeftClose icon
+import { Search, UserPlus, LogOut, User, UserCheck, X, RefreshCw, MessageSquareText, PanelLeftClose, PhoneIncoming } from "lucide-react" // Added PhoneIncoming
 import { Badge } from "@/components/ui/badge"
 
-export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Added onSelectFriend, onClose props
+export default function Sidebar({ onLogout, onSelectFriend, onClose, selectedFriendId, incomingCallFromId }) { // Added selectedFriendId and incomingCallFromId props
   const { user } = useAuthStore()
   const {
     friends,
     friendRequests,
-    selectedFriend,
+    // selectedFriend, // Use selectedFriendId prop for consistency if needed, or store is fine
     setFriends,
     setFriendRequests,
-    setSelectedFriend,
+    // setSelectedFriend, // We'll rely on onSelectFriend prop to handle this
     setLoadingFriends,
     setLoadingRequests,
     removeFriendRequest,
     addFriend,
-  } = useChatStore()
+  } = useChatStore() // Still need useChatStore for friends, requests etc.
   const { toast } = useToast()
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState([])
   const [isSearching, setIsSearching] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const pollingIntervalRef = useRef(null)
+
+  // Use selectedFriend from store for highlighting, as it's the source of truth
+  const { selectedFriend } = useChatStore();
+
 
   // Load friends and friend requests
   useEffect(() => {
@@ -79,15 +83,13 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
       }
     }
 
-    // Initial load
     loadFriends()
     loadFriendRequests()
 
-    // Set up polling with a longer interval (2 minutes)
     pollingIntervalRef.current = setInterval(() => {
       loadFriendRequests()
       loadFriends()
-    }, 120000) // Poll every 2 minutes
+    }, 120000)
 
     return () => {
       if (pollingIntervalRef.current) {
@@ -96,10 +98,8 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
     }
   }, [setFriends, setFriendRequests, setLoadingFriends, setLoadingRequests, toast])
 
-  // Manual refresh function
   const handleRefresh = async () => {
     if (isRefreshing) return
-
     setIsRefreshing(true)
     try {
       const friendsResponse = await fetch("/api/friends")
@@ -110,7 +110,6 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
           const errorData = await friendsResponse.json();
           throw new Error(errorData.message || `Failed to refresh friends: ${friendsResponse.status}`);
       }
-
       const requestsResponse = await fetch("/api/friend-requests")
       if (requestsResponse.ok) {
         const data = await requestsResponse.json()
@@ -119,7 +118,6 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
           const errorData = await requestsResponse.json();
           throw new Error(errorData.message || `Failed to refresh friend requests: ${requestsResponse.status}`);
       }
-
       toast({
         title: "Refreshed",
         description: "Friend list updated.",
@@ -140,7 +138,6 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
   const handleSearch = async (e) => {
     e.preventDefault()
     if (!searchQuery.trim()) return
-
     setIsSearching(true)
     try {
       const response = await fetch(`/api/users/search?query=${encodeURIComponent(searchQuery)}`)
@@ -167,12 +164,9 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
     try {
       const response = await fetch("/api/friend-requests", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
       })
-
       if (response.ok) {
         toast({
           title: "Success",
@@ -197,10 +191,7 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
 
   const handleAcceptFriendRequest = async (requestId) => {
     try {
-      const response = await fetch(`/api/friend-requests/${requestId}/accept`, {
-        method: "POST",
-      })
-
+      const response = await fetch(`/api/friend-requests/${requestId}/accept`, { method: "POST" })
       if (response.ok) {
         const data = await response.json()
         toast({
@@ -226,10 +217,7 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
 
   const handleRejectFriendRequest = async (requestId) => {
     try {
-      const response = await fetch(`/api/friend-requests/${requestId}/reject`, {
-        method: "POST",
-      })
-
+      const response = await fetch(`/api/friend-requests/${requestId}/reject`, { method: "POST" })
       if (response.ok) {
         toast({
           title: "Info",
@@ -251,17 +239,16 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
     }
   }
 
+  // Corrected: Call onSelectFriend prop with the friend object
   const handleFriendClick = (friend) => {
-    setSelectedFriend(friend);
-    if (onSelectFriend) { // Call callback to close sidebar on mobile
-      onSelectFriend();
+    if (onSelectFriend) {
+      onSelectFriend(friend); // Pass the friend object to the callback
     }
+    // No direct call to setSelectedFriend here, let ChatLayout handle it via the prop.
   };
 
-
   return (
-    <div className="w-full bg-white h-full flex flex-col bg-card border-r border-border rounded-r-2xl shadow-xl sm:shadow-none sm:rounded-none"> {/* Adjusted for mobile positioning */}
-      {/* Header */}
+    <div className="w-full bg-white h-full flex flex-col bg-card border-r border-border rounded-r-2xl shadow-xl sm:shadow-none sm:rounded-none">
       <div className="p-4 border-b border-border flex justify-between items-center bg-card shadow-sm">
         <div className="flex items-center gap-2">
           <MessageSquareText className="h-7 w-7 text-primary" />
@@ -290,12 +277,11 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
           >
             <LogOut className="h-5 w-5" />
           </Button>
-          {/* Close Sidebar Button - Visible only on small screens */}
           <Button
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="sm:hidden" // Show only on mobile
+            className="sm:hidden"
             title="Close Sidebar"
           >
             <PanelLeftClose className="h-5 w-5 text-foreground" />
@@ -303,7 +289,6 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
         </div>
       </div>
 
-      {/* Tabs */}
       <Tabs defaultValue="friends" className="flex-1 flex flex-col">
         <TabsList className="grid grid-cols-2 mx-4 mt-4 bg-muted rounded-xl p-1">
           <TabsTrigger
@@ -324,13 +309,11 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
           </TabsTrigger>
         </TabsList>
 
-        {/* Friends Tab */}
         <TabsContent value="friends" className="flex-1 flex flex-col">
-          {/* Search Form */}
           <form onSubmit={handleSearch} className="p-4 border-b border-border bg-card">
             <div className="relative">
               <Input
-                placeholder="Search by phone number or name..."
+                placeholder="Search by phone or name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pr-10 rounded-lg border-input focus:border-ring focus:ring-ring transition-all duration-200"
@@ -347,7 +330,6 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
             </div>
           </form>
 
-          {/* Search Results */}
           {searchResults.length > 0 && (
             <div className="p-4 border-b border-border bg-card animate-fade-in">
               <h3 className="text-base font-semibold mb-3 text-foreground">Search Results</h3>
@@ -378,50 +360,59 @@ export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Adde
             </div>
           )}
 
-          {/* Friends List */}
           <div className="flex-1 overflow-auto p-4 custom-scrollbar">
             <h3 className="text-base font-semibold mb-3 text-foreground">Your Friends</h3>
             {friends.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
-                No friends yet. Search for users by phone number to add friends!
+                No friends yet. Search for users to add friends!
               </p>
             ) : (
               <div className="space-y-2">
-                {friends.map((friend) => (
-                  <div
-                    key={friend.id}
-                    className={`flex items-center p-3 rounded-lg cursor-pointer transition-all duration-200 shadow-sm ${
-                      selectedFriend?.id === friend.id
-                        ? "bg-primary text-primary-foreground shadow-md"
-                        : "hover:bg-accent bg-card"
-                    }`}
-                    onClick={() => handleFriendClick(friend)} // Use new handler
-                  >
-                    <div className={`h-12 w-12 rounded-full flex items-center justify-center mr-3 flex-shrink-0 ${selectedFriend?.id === friend.id ? "bg-primary-foreground text-primary" : "bg-muted text-muted-foreground"}`}>
-                      <User className="h-7 w-7" />
+                {friends.map((friend) => {
+                  const isSelected = selectedFriend?.id === friend.id;
+                  const isReceivingCall = incomingCallFromId === friend.id;
+                  return (
+                    <div
+                      key={friend.id}
+                      className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all duration-200 shadow-sm ${
+                        isSelected
+                          ? "bg-primary text-primary-foreground shadow-md"
+                          : isReceivingCall
+                          ? "bg-green-500/20 animate-pulse-fast" // Highlight for incoming call
+                          : "hover:bg-accent bg-card"
+                      }`}
+                      onClick={() => handleFriendClick(friend)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`h-12 w-12 rounded-full flex items-center justify-center mr-0 flex-shrink-0 ${isSelected ? "bg-primary-foreground text-primary" : "bg-muted text-muted-foreground"}`}>
+                          <User className="h-7 w-7" />
+                        </div>
+                        <div>
+                          <p className={`font-medium ${isSelected ? "text-primary-foreground" : "text-foreground"}`}>{friend.name}</p>
+                          <p
+                            className={`text-sm ${
+                              isSelected ? "text-primary-foreground/80" : "text-muted-foreground"
+                            }`}
+                          >
+                            {friend.phone_number}
+                          </p>
+                        </div>
+                      </div>
+                      {isReceivingCall && !isSelected && (
+                        <PhoneIncoming className="h-5 w-5 text-green-600 animate-bounce" />
+                      )}
                     </div>
-                    <div>
-                      <p className={`font-medium ${selectedFriend?.id === friend.id ? "text-primary-foreground" : "text-foreground"}`}>{friend.name}</p>
-                      <p
-                        className={`text-sm ${
-                          selectedFriend?.id === friend.id ? "text-primary-foreground/80" : "text-muted-foreground"
-                        }`}
-                      >
-                        {friend.phone_number}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </TabsContent>
 
-        {/* Friend Requests Tab */}
         <TabsContent value="requests" className="flex-1 overflow-auto p-4 custom-scrollbar">
           <h3 className="text-base font-semibold mb-3 text-foreground">Pending Friend Requests</h3>
           {friendRequests.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">No pending friend requests at the moment.</p>
+            <p className="text-sm text-muted-foreground text-center py-8">No pending friend requests.</p>
           ) : (
             <div className="space-y-3">
               {friendRequests.map((request) => (
