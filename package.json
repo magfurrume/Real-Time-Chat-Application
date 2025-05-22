@@ -46,6 +46,7 @@
     "concurrently": "^9.1.2",
     "date-fns": "latest",
     "embla-carousel-react": "8.5.1",
+    "emoji-picker-react": "^4.12.2",
     "http": "latest",
     "immer": "latest",
     "input-otp": "1.4.1",

@@ -7,10 +7,10 @@ import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, UserPlus, LogOut, User, UserCheck, X, RefreshCw } from "lucide-react"
+import { Search, UserPlus, LogOut, User, UserCheck, X, RefreshCw, MessageSquareText, PanelLeftClose } from "lucide-react" // Added PanelLeftClose icon
 import { Badge } from "@/components/ui/badge"
 
-export default function Sidebar({ onLogout }) {
+export default function Sidebar({ onLogout, onSelectFriend, onClose }) { // Added onSelectFriend, onClose props
   const { user } = useAuthStore()
   const {
     friends,
@@ -40,9 +40,17 @@ export default function Sidebar({ onLogout }) {
         if (response.ok) {
           const data = await response.json()
           setFriends(data.friends)
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.message || `Failed to fetch friends: ${response.status}`);
         }
       } catch (error) {
         console.error("Error loading friends:", error)
+        toast({
+          title: "Error",
+          description: error.message || "Failed to load friends.",
+          variant: "destructive",
+        })
       } finally {
         setLoadingFriends(false)
       }
@@ -55,9 +63,17 @@ export default function Sidebar({ onLogout }) {
         if (response.ok) {
           const data = await response.json()
           setFriendRequests(data.requests)
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.message || `Failed to fetch friend requests: ${response.status}`);
         }
       } catch (error) {
         console.error("Error loading friend requests:", error)
+        toast({
+          title: "Error",
+          description: error.message || "Failed to load friend requests.",
+          variant: "destructive",
+        })
       } finally {
         setLoadingRequests(false)
       }
@@ -67,7 +83,7 @@ export default function Sidebar({ onLogout }) {
     loadFriends()
     loadFriendRequests()
 
-    // Set up polling with a longer interval (2 minutes instead of 30 seconds)
+    // Set up polling with a longer interval (2 minutes)
     pollingIntervalRef.current = setInterval(() => {
       loadFriendRequests()
       loadFriends()
@@ -78,7 +94,7 @@ export default function Sidebar({ onLogout }) {
         clearInterval(pollingIntervalRef.current)
       }
     }
-  }, [setFriends, setFriendRequests, setLoadingFriends, setLoadingRequests])
+  }, [setFriends, setFriendRequests, setLoadingFriends, setLoadingRequests, toast])
 
   // Manual refresh function
   const handleRefresh = async () => {
@@ -86,29 +102,34 @@ export default function Sidebar({ onLogout }) {
 
     setIsRefreshing(true)
     try {
-      // Load friends
       const friendsResponse = await fetch("/api/friends")
       if (friendsResponse.ok) {
         const data = await friendsResponse.json()
         setFriends(data.friends)
+      } else {
+          const errorData = await friendsResponse.json();
+          throw new Error(errorData.message || `Failed to refresh friends: ${friendsResponse.status}`);
       }
 
-      // Load friend requests
       const requestsResponse = await fetch("/api/friend-requests")
       if (requestsResponse.ok) {
         const data = await requestsResponse.json()
         setFriendRequests(data.requests)
+      } else {
+          const errorData = await requestsResponse.json();
+          throw new Error(errorData.message || `Failed to refresh friend requests: ${requestsResponse.status}`);
       }
 
       toast({
         title: "Refreshed",
-        description: "Friend list updated",
+        description: "Friend list updated.",
+        className: "bg-success text-success-foreground",
       })
     } catch (error) {
       console.error("Error refreshing data:", error)
       toast({
         title: "Error",
-        description: "Failed to refresh data",
+        description: error.message || "Failed to refresh data",
         variant: "destructive",
       })
     } finally {
@@ -126,12 +147,15 @@ export default function Sidebar({ onLogout }) {
       if (response.ok) {
         const data = await response.json()
         setSearchResults(data.users)
+      } else {
+        const data = await response.json();
+        throw new Error(data.message || "Failed to search users.");
       }
     } catch (error) {
       console.error("Error searching users:", error)
       toast({
         title: "Error",
-        description: "Failed to search users. Please try again.",
+        description: error.message || "Failed to search users. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -153,8 +177,8 @@ export default function Sidebar({ onLogout }) {
         toast({
           title: "Success",
           description: "Friend request sent successfully.",
+          className: "bg-success text-success-foreground",
         })
-        // Clear search results
         setSearchResults([])
         setSearchQuery("")
       } else {
@@ -182,9 +206,8 @@ export default function Sidebar({ onLogout }) {
         toast({
           title: "Success",
           description: "Friend request accepted.",
+          className: "bg-success text-success-foreground",
         })
-
-        // Update UI
         removeFriendRequest(requestId)
         addFriend(data.friend)
       } else {
@@ -209,11 +232,10 @@ export default function Sidebar({ onLogout }) {
 
       if (response.ok) {
         toast({
-          title: "Success",
+          title: "Info",
           description: "Friend request rejected.",
+          className: "bg-muted text-muted-foreground",
         })
-
-        // Update UI
         removeFriendRequest(requestId)
       } else {
         const data = await response.json()
@@ -229,37 +251,75 @@ export default function Sidebar({ onLogout }) {
     }
   }
 
+  const handleFriendClick = (friend) => {
+    setSelectedFriend(friend);
+    if (onSelectFriend) { // Call callback to close sidebar on mobile
+      onSelectFriend();
+    }
+  };
+
+
   return (
-    <div className="w-full sm:w-80 bg-white border-r flex flex-col h-full max-h-screen overflow-hidden">
+    <div className="w-full bg-white h-full flex flex-col bg-card border-r border-border rounded-r-2xl shadow-xl sm:shadow-none sm:rounded-none"> {/* Adjusted for mobile positioning */}
       {/* Header */}
-      <div className="p-4 border-b flex justify-between items-center">
-        <div>
-          <h2 className="font-bold text-lg">Chat App</h2>
-          <p className="text-sm text-gray-500">{user?.name}</p>
+      <div className="p-4 border-b border-border flex justify-between items-center bg-card shadow-sm">
+        <div className="flex items-center gap-2">
+          <MessageSquareText className="h-7 w-7 text-primary" />
+          <div>
+            <h2 className="font-bold text-xl text-foreground">Chatify</h2>
+            <p className="text-sm text-muted-foreground">{user?.name}</p>
+          </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={isRefreshing} title="Refresh">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            title="Refresh"
+            className="hover:bg-accent hover:text-accent-foreground transition-all duration-200"
+          >
             <RefreshCw className={`h-5 w-5 ${isRefreshing ? "animate-spin" : ""}`} />
           </Button>
-          <Button variant="ghost" size="icon" onClick={onLogout} title="Logout">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onLogout}
+            title="Logout"
+            className="hover:bg-destructive/10 text-destructive hover:text-destructive transition-all duration-200"
+          >
             <LogOut className="h-5 w-5" />
+          </Button>
+          {/* Close Sidebar Button - Visible only on small screens */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="sm:hidden" // Show only on mobile
+            title="Close Sidebar"
+          >
+            <PanelLeftClose className="h-5 w-5 text-foreground" />
           </Button>
         </div>
       </div>
 
       {/* Tabs */}
       <Tabs defaultValue="friends" className="flex-1 flex flex-col">
-        <TabsList className="grid grid-cols-2 mx-4 mt-4">
-          <TabsTrigger value="friends">
+        <TabsList className="grid grid-cols-2 mx-4 mt-4 bg-muted rounded-xl p-1">
+          <TabsTrigger
+            value="friends"
+            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm rounded-lg transition-all duration-200"
+          >
             Friends
-            {friends.length > 0 && <Badge className="ml-2">{friends.length}</Badge>}
+            {friends.length > 0 && <Badge className="ml-2 bg-primary-foreground text-primary">{friends.length}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="requests">
+          <TabsTrigger
+            value="requests"
+            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm rounded-lg transition-all duration-200"
+          >
             Requests
             {friendRequests.length > 0 && (
-              <Badge variant="destructive" className="ml-2">
-                {friendRequests.length}
-              </Badge>
+              <Badge variant="destructive" className="ml-2">{friendRequests.length}</Badge>
             )}
           </TabsTrigger>
         </TabsList>
@@ -267,44 +327,50 @@ export default function Sidebar({ onLogout }) {
         {/* Friends Tab */}
         <TabsContent value="friends" className="flex-1 flex flex-col">
           {/* Search Form */}
-          <form onSubmit={handleSearch} className="p-4 border-b">
+          <form onSubmit={handleSearch} className="p-4 border-b border-border bg-card">
             <div className="relative">
               <Input
-                placeholder="Search by phone number..."
+                placeholder="Search by phone number or name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pr-10"
+                className="pr-10 rounded-lg border-input focus:border-ring focus:ring-ring transition-all duration-200"
               />
               <Button
                 type="submit"
                 variant="ghost"
                 size="icon"
-                className="absolute right-0 top-0 h-full"
+                className="absolute right-0 top-0 h-full text-muted-foreground hover:text-primary transition-colors duration-200"
                 disabled={isSearching}
               >
-                <Search className="h-4 w-4" />
+                <Search className="h-5 w-5" />
               </Button>
             </div>
           </form>
 
           {/* Search Results */}
           {searchResults.length > 0 && (
-            <div className="p-4 border-b">
-              <h3 className="text-sm font-medium mb-2">Search Results</h3>
-              <div className="space-y-2">
+            <div className="p-4 border-b border-border bg-card animate-fade-in">
+              <h3 className="text-base font-semibold mb-3 text-foreground">Search Results</h3>
+              <div className="space-y-3">
                 {searchResults.map((result) => (
-                  <div key={result.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                    <div>
-                      <p className="font-medium">{result.name}</p>
-                      <p className="text-sm text-gray-500">{result.phone_number}</p>
+                  <div key={result.id} className="flex items-center justify-between p-3 bg-accent/20 rounded-lg shadow-sm transition-all duration-200 hover:bg-accent/40">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full bg-chat-avatar-blue-light flex items-center justify-center flex-shrink-0">
+                        <User className="h-6 w-6 text-chat-avatar-blue-dark" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">{result.name}</p>
+                        <p className="text-sm text-muted-foreground">{result.phone_number}</p>
+                      </div>
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => handleSendFriendRequest(result.id)}
                       title="Send Friend Request"
+                      className="text-primary hover:bg-primary/10 transition-all duration-200"
                     >
-                      <UserPlus className="h-4 w-4" />
+                      <UserPlus className="h-5 w-5" />
                     </Button>
                   </div>
                 ))}
@@ -313,28 +379,32 @@ export default function Sidebar({ onLogout }) {
           )}
 
           {/* Friends List */}
-          <div className="flex-1 overflow-auto p-4">
-            <h3 className="text-sm font-medium mb-2">Your Friends</h3>
+          <div className="flex-1 overflow-auto p-4 custom-scrollbar">
+            <h3 className="text-base font-semibold mb-3 text-foreground">Your Friends</h3>
             {friends.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-4">No friends yet. Search for users to add friends.</p>
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No friends yet. Search for users by phone number to add friends!
+              </p>
             ) : (
               <div className="space-y-2">
                 {friends.map((friend) => (
                   <div
                     key={friend.id}
-                    className={`flex items-center p-3 rounded cursor-pointer ${
-                      selectedFriend?.id === friend.id ? "bg-blue-400 text-primary-foreground" : "hover:bg-gray-100"
+                    className={`flex items-center p-3 rounded-lg cursor-pointer transition-all duration-200 shadow-sm ${
+                      selectedFriend?.id === friend.id
+                        ? "bg-primary text-primary-foreground shadow-md"
+                        : "hover:bg-accent bg-card"
                     }`}
-                    onClick={() => setSelectedFriend(friend)}
+                    onClick={() => handleFriendClick(friend)} // Use new handler
                   >
-                    <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center mr-3">
-                      <User className="h-6 w-6 text-gray-600" />
+                    <div className={`h-12 w-12 rounded-full flex items-center justify-center mr-3 flex-shrink-0 ${selectedFriend?.id === friend.id ? "bg-primary-foreground text-primary" : "bg-muted text-muted-foreground"}`}>
+                      <User className="h-7 w-7" />
                     </div>
                     <div>
-                      <p className="font-medium">{friend.name}</p>
+                      <p className={`font-medium ${selectedFriend?.id === friend.id ? "text-primary-foreground" : "text-foreground"}`}>{friend.name}</p>
                       <p
                         className={`text-sm ${
-                          selectedFriend?.id === friend.id ? "text-primary-foreground/80" : "text-gray-500"
+                          selectedFriend?.id === friend.id ? "text-primary-foreground/80" : "text-muted-foreground"
                         }`}
                       >
                         {friend.phone_number}
@@ -348,31 +418,31 @@ export default function Sidebar({ onLogout }) {
         </TabsContent>
 
         {/* Friend Requests Tab */}
-        <TabsContent value="requests" className="flex-1 overflow-auto p-4">
-          <h3 className="text-sm font-medium mb-2">Friend Requests</h3>
+        <TabsContent value="requests" className="flex-1 overflow-auto p-4 custom-scrollbar">
+          <h3 className="text-base font-semibold mb-3 text-foreground">Pending Friend Requests</h3>
           {friendRequests.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-4">No pending friend requests.</p>
+            <p className="text-sm text-muted-foreground text-center py-8">No pending friend requests at the moment.</p>
           ) : (
             <div className="space-y-3">
               {friendRequests.map((request) => (
-                <div key={request.id} className="border rounded p-3 bg-gray-50">
-                  <div className="flex items-center mb-2">
-                    <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center mr-3">
-                      <User className="h-6 w-6 text-gray-600" />
+                <div key={request.id} className="border border-border rounded-xl p-4 bg-card shadow-sm animate-fade-in">
+                  <div className="flex items-center mb-3">
+                    <div className="h-12 w-12 rounded-full bg-chat-avatar-orange-light flex items-center justify-center mr-3 flex-shrink-0">
+                      <User className="h-7 w-7 text-chat-avatar-orange-dark" />
                     </div>
                     <div>
-                      <p className="font-medium">{request.sender_name}</p>
-                      <p className="text-sm text-gray-500">{request.sender_phone}</p>
+                      <p className="font-medium text-foreground">{request.sender_name}</p>
+                      <p className="text-sm text-muted-foreground">{request.sender_phone}</p>
                     </div>
                   </div>
                   <div className="flex space-x-2">
-                    <Button size="sm" className="flex-1" onClick={() => handleAcceptFriendRequest(request.id)}>
+                    <Button size="sm" className="flex-1 bg-success hover:bg-success/90 transition-colors duration-200 rounded-lg shadow-sm" onClick={() => handleAcceptFriendRequest(request.id)}>
                       <UserCheck className="h-4 w-4 mr-1" /> Accept
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="flex-1"
+                      className="flex-1 border-input hover:bg-accent text-foreground hover:text-accent-foreground transition-colors duration-200 rounded-lg shadow-sm"
                       onClick={() => handleRejectFriendRequest(request.id)}
                     >
                       <X className="h-4 w-4 mr-1" /> Reject

@@ -22,6 +22,19 @@ export default function ChatLayout() {
 
   const [socket, setSocket] = useState(null)
   const [socketConnected, setSocketConnected] = useState(false)
+   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+     // Close sidebar automatically on larger screens
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 640) { // Tailwind's 'sm' breakpoint
+        setIsSidebarOpen(false); // Ensure sidebar is closed on resize to larger screens
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // To prevent adding duplicate messages
   const messageIdsRef = useRef(new Set())
@@ -31,7 +44,7 @@ export default function ChatLayout() {
     if (!user) return
 
     const socketUrl =
-      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3005"
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://192.168.0.40:3005"
 
     const s = io(socketUrl, {
       auth: { userId: user.id },
@@ -153,14 +166,41 @@ export default function ChatLayout() {
     toast({ title: "Logged out", description: "See you again!" })
     router.push("/")
   }
+const handleOpenSidebar = () => setIsSidebarOpen(true);
+  const handleCloseSidebar = () => setIsSidebarOpen(false);
+ return (
+    <div className="flex h-screen bg-background relative overflow-hidden"> {/* Added relative and overflow-hidden */}
+      {/* Sidebar - conditionally shown and animated */}
+      <div className={`
+        fixed inset-y-0 left-0 z-50
+        w-80 h-full bg-card shadow-xl transition-transform duration-300 ease-in-out
+        transform ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        sm:translate-x-0 sm:relative sm:w-80 sm:block
+        rounded-r-2xl sm:rounded-none sm:shadow-none
+      `}>
+        <Sidebar
+          onLogout={handleLogout}
+          onSelectFriend={handleCloseSidebar} // Close sidebar when a friend is selected
+          onClose={handleCloseSidebar} // Explicit close for mobile
+        />
+      </div>
 
-  return (
-    <div className="flex h-screen bg-gray-100">
-      <Sidebar onLogout={handleLogout} />
-      <ChatWindow
-        onSendMessage={handleSendMessage}
-        socketConnected={socketConnected}
-      />
+      {/* Overlay for mobile when sidebar is open */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 sm:hidden"
+          onClick={handleCloseSidebar}
+        ></div>
+      )}
+
+      {/* Chat Window - takes remaining space, includes a toggle for sidebar on mobile */}
+      <div className="flex-1 min-w-0 flex flex-col z-10"> {/* Ensure chat window stacks properly */}
+        <ChatWindow
+          onSendMessage={handleSendMessage}
+          socketConnected={socketConnected}
+          onOpenSidebar={handleOpenSidebar} // Pass function to open sidebar
+        />
+      </div>
     </div>
   )
 }

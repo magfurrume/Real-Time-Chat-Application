@@ -14,7 +14,7 @@ const httpServer = createServer()
 
 // Get port and CORS origin from environment variables
 const PORT = process.env.PORT || 3005
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3002"
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://192.168.0.40:3000"
 
 console.log("Starting Socket.io server with CORS origin:", CORS_ORIGIN)
 
