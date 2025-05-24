@@ -10,7 +10,10 @@ const pool = new Pool({
 })
 
 // Create HTTP server
-const httpServer = createServer()
+const httpServer = createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/html" })
+  res.end("<h1>✅ Socket.io Server is Running</h1><p>Listening on port " + PORT + "</p>")
+})
 
 // Get port and CORS origin from environment variables
 const PORT = process.env.PORT || 3005
