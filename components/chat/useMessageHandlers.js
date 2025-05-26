@@ -1,3 +1,4 @@
+// components/chat/useMessageHandlers.js
 import { useEffect, useRef, useCallback } from "react";
 
 export function useMessageHandlers({ 
@@ -24,7 +25,7 @@ export function useMessageHandlers({
         const { messages: fetched } = await res.json();
         fetched.forEach((m) => messageIdsRef.current.add(m.id));
         setMessages(fetched);
-      } catch {
+      } catch (error) {
         toast({ 
           title: "Error", 
           description: "Failed to load messages", 
@@ -34,7 +35,7 @@ export function useMessageHandlers({
       }
     };
     fetchMessages();
-  }, [selectedFriend, user, setMessages, toast]); // Added setMessages and toast to dependencies
+  }, [selectedFriend, user, setMessages, toast]);
 
   useEffect(() => {
     if (!socket) return;

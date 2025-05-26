@@ -1,4 +1,3 @@
-// hooks/useWebRTC.js
 import { useState, useRef, useEffect, useCallback } from "react";
 
 export function useWebRTC({ socket, user, selectedFriend, toast }) {
@@ -41,10 +40,38 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       incomingCall: null,
       currentCall: null
     }));
-  }, [socket, callState.currentCall, user?.id]);
+  }, [socket, user?.id]);
+
+const checkMediaPermissions = useCallback(async () => {
+  try {
+    // Check if mediaDevices is available
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      throw new Error("Media devices API not available");
+    }
+
+    // Check permissions by trying to enumerate devices
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const hasAudio = devices.some(device => device.kind === 'audioinput');
+    
+    if (!hasAudio) {
+      throw new Error("No microphone found");
+    }
+    
+    // Test actual microphone access
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(track => track.stop());
+    
+    return true;
+  } catch (error) {
+    console.error("Media check failed:", error);
+    throw error;
+  }
+}, []);
 
   const setupPeerConnection = useCallback(async () => {
     try {
+      await checkMediaPermissions();
+      
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -79,21 +106,21 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "disconnected") {
           cleanUpCall(false);
-          toast({ title: "Call Ended", description: "Connection lost" });
+          toast?.({ title: "Call Ended", description: "Connection lost" });
         }
       };
 
       return pc;
     } catch (error) {
       console.error("Error setting up peer connection:", error);
-      toast({
+      toast?.({
         title: "Media Error",
-        description: "Could not access microphone",
+        description: error.message || "Could not access microphone",
         variant: "destructive"
       });
       throw error;
     }
-  }, [socket, callState.currentCall, cleanUpCall, toast]);
+  }, [socket, toast, cleanUpCall, checkMediaPermissions]);
 
   const startCall = useCallback(async (friendId, friendName) => {
     if (!socket || !user || callState.isInCall || callState.isCalling) return;
@@ -118,15 +145,16 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       socket.emit("call-user", {
         callerId: user.id,
         receiverId: friendId,
-        callerName: user.name
+        callerName: user.name,
+        offer
       });
 
     } catch (error) {
       console.error("Error starting call:", error);
       cleanUpCall(false);
-      toast({
+      toast?.({
         title: "Call Failed",
-        description: "Could not initiate call",
+        description: error.message || "Could not initiate call",
         variant: "destructive"
       });
     }
@@ -168,14 +196,14 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
         }
       }));
 
-      toast({ title: "Call Connected", description: "You are now in a call" });
+      toast?.({ title: "Call Connected", description: "You are now in a call" });
 
     } catch (error) {
       console.error("Error accepting call:", error);
       cleanUpCall(true);
-      toast({
+      toast?.({
         title: "Call Failed",
-        description: "Could not accept call",
+        description: error.message || "Could not accept call",
         variant: "destructive"
       });
     }
@@ -213,7 +241,6 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
     }
   }, [callState.isMuted]);
 
-  // Setup socket listeners
   useEffect(() => {
     if (!socket || !user) return;
 
@@ -225,6 +252,8 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
         socket.emit("reject-call", { callId, reason: "busy" });
         return;
       }
+
+      if (callState.incomingCall?.callId === callId) return;
 
       ringtoneRef.current.play().catch(() => {
         document.addEventListener("click", function playOnClick() {
@@ -238,7 +267,7 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
         incomingCall: { callId, callerId, callerName, offer }
       }));
 
-      toast({
+      toast?.({
         title: "Incoming Call",
         description: `From ${callerName}`,
         duration: 30000
@@ -256,7 +285,7 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
             isInCall: true,
             isCalling: false
           }));
-          toast({ title: "Call Connected", description: "Call accepted" });
+          toast?.({ title: "Call Connected", description: "Call accepted" });
         } catch (error) {
           console.error("Error setting remote description:", error);
           cleanUpCall(true);
@@ -267,14 +296,14 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
     const handleCallRejected = ({ callId }) => {
       if (callState.currentCall?.callId === callId) {
         cleanUpCall(false);
-        toast({ title: "Call Rejected", description: "The call was rejected" });
+        toast?.({ title: "Call Rejected", description: "The call was rejected" });
       }
     };
 
     const handleCallEnded = ({ callId }) => {
       if (callState.currentCall?.callId === callId) {
         cleanUpCall(false);
-        toast({ title: "Call Ended", description: "The call has ended" });
+        toast?.({ title: "Call Ended", description: "The call has ended" });
       }
     };
 
@@ -299,7 +328,7 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       socket.off("ice-candidate", handleIceCandidate);
       cleanUpCall(false);
     };
-  }, [socket, user, callState, cleanUpCall, toast]);
+  }, [socket, user, cleanUpCall, toast]);
 
   return {
     callState,
