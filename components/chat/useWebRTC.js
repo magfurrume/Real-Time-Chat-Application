@@ -1,212 +1,165 @@
+// useWebRTC.jsx
 import { useState, useRef, useEffect, useCallback } from "react";
 
-export function useWebRTC({ socket, user, toast }) {
+export function useWebRTC({ socket, user, selectedFriend, toast }) {
   const [callState, setCallState] = useState({
     isInCall: false,
     isCalling: false,
     incomingCall: null,
     currentCall: null,
-    isMuted: false
+    isMuted: false,
   });
 
-  const peerRef = useRef(null);
-  const localStreamRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const ringtoneRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const streamRef = useRef(null);
+  const processorRef = useRef(null);
+  const sourceRef = useRef(null);
 
-  const cleanUpCall = useCallback((emitEndCall = true) => {
-    peerRef.current?.close();
-    peerRef.current = null;
+  const cleanUpCall = useCallback(
+    (emitEndCall = true) => {
+      processorRef.current?.disconnect();
+      sourceRef.current?.disconnect();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      audioContextRef.current?.close().catch(console.error);
 
-    localStreamRef.current?.getTracks().forEach(track => track.stop());
-    localStreamRef.current = null;
+      processorRef.current = null;
+      sourceRef.current = null;
+      streamRef.current = null;
+      audioContextRef.current = null;
 
-    if (ringtoneRef.current) {
-      ringtoneRef.current.pause();
-      ringtoneRef.current.currentTime = 0;
-    }
-
-    if (emitEndCall && socket && callState.currentCall?.callId) {
-      socket.emit("end-call", {
-        callId: callState.currentCall.callId,
-        userId: user.id
-      });
-    }
-
-    setCallState({
-      isInCall: false,
-      isCalling: false,
-      incomingCall: null,
-      currentCall: null,
-      isMuted: false
-    });
-  }, [socket, user?.id, callState.currentCall?.callId]);
-
-  const checkMediaPermissions = useCallback(async () => {
-    try {
-      if (!navigator.mediaDevices?.enumerateDevices) {
-        throw new Error("Media devices API not supported");
+      if (ringtoneRef.current) {
+        ringtoneRef.current.pause();
+        ringtoneRef.current.currentTime = 0;
       }
 
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const hasAudio = devices.some(d => d.kind === "audioinput");
+      if (emitEndCall && socket && callState.currentCall?.callId) {
+        socket.emit("end-call", {
+          callId: callState.currentCall.callId,
+          userId: user.id,
+        });
+      }
 
-      if (!hasAudio) throw new Error("No microphone found");
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop());
-
-      return true;
-    } catch (error) {
-      toast?.({
-        title: "Media Error",
-        description: error.message || "Microphone access failed",
-        variant: "destructive"
+      setCallState({
+        isInCall: false,
+        isCalling: false,
+        incomingCall: null,
+        currentCall: null,
+        isMuted: false,
       });
-      throw error;
-    }
-  }, [toast]);
+    },
+    [socket, user?.id, callState.currentCall?.callId]
+  );
 
-  const setupPeerConnection = useCallback(async () => {
-    try {
-      await checkMediaPermissions();
+  const startStreaming = useCallback(
+    async (peerId) => {
+      try {
+        audioContextRef.current = new (window.AudioContext ||
+          window.webkitAudioContext)();
+        streamRef.current = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        sourceRef.current = audioContextRef.current.createMediaStreamSource(
+          streamRef.current
+        );
+        processorRef.current = audioContextRef.current.createScriptProcessor(
+          2048,
+          1,
+          1
+        );
+        sourceRef.current.connect(processorRef.current);
+        processorRef.current.connect(audioContextRef.current.destination);
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 16000
-        }
-      });
+        processorRef.current.onaudioprocess = (e) => {
+          if (!callState.isMuted && socket?.connected) {
+            socket.emit("audio-data", {
+              receiverId: peerId,
+              data: Array.from(e.inputBuffer.getChannelData(0)),
+            });
+          }
+        };
+      } catch (err) {
+        console.error("Microphone access error:", err);
+        toast?.({
+          title: "Mic Error",
+          description: "Cannot access microphone.",
+          variant: "destructive",
+        });
+        cleanUpCall();
+      }
+    },
+    [socket, toast, cleanUpCall, callState.isMuted]
+  );
 
-      localStreamRef.current = stream;
-
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-      });
-
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-      pc.ontrack = event => {
-        if (remoteAudioRef.current && event.streams[0]) {
-          remoteAudioRef.current.srcObject = event.streams[0];
-          remoteAudioRef.current.play().catch(console.error);
-        }
-      };
-
-      pc.onicecandidate = event => {
-        if (event.candidate && callState.currentCall?.receiverId) {
-          socket.emit("ice-candidate", {
-            callId: callState.currentCall.callId,
-            candidate: event.candidate,
-            targetId: callState.currentCall.receiverId
-          });
-        }
-      };
-
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "disconnected") {
-          cleanUpCall(false);
-          toast?.({ title: "Call Ended", description: "Connection lost" });
-        }
-      };
-
-      return pc;
-    } catch (error) {
-      throw error;
-    }
-  }, [checkMediaPermissions, socket, callState.currentCall?.receiverId, cleanUpCall, toast]);
-
-  const startCall = useCallback(async (friendId, friendName) => {
-    if (!socket || !user || callState.isInCall || callState.isCalling) return;
-
-    try {
-      setCallState(prev => ({ ...prev, isCalling: true }));
-
-      const pc = await setupPeerConnection();
-      peerRef.current = pc;
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+  const startCall = useCallback(
+    (friendId, friendName) => {
+      if (!socket || !user || callState.isInCall || callState.isCalling) return;
 
       const callId = `call_${Date.now()}_${user.id}_${friendId}`;
 
-      setCallState(prev => ({
+      setCallState((prev) => ({
         ...prev,
-        currentCall: { callId, receiverId: friendId, receiverName: friendName }
+        isCalling: true,
+        currentCall: { callId, receiverId: friendId, receiverName: friendName },
       }));
 
       socket.emit("call-user", {
+        callerId: user.id,
         receiverId: friendId,
         callerName: user.name,
-        offer,
-        callId
+        callId,
       });
-    } catch (error) {
-      console.error("Error starting call:", error);
-      setCallState(prev => ({ ...prev, isCalling: false }));
-    }
-  }, [socket, user, callState.isInCall, callState.isCalling, setupPeerConnection]);
+    },
+    [socket, user, callState]
+  );
 
-  const acceptCall = useCallback(async () => {
-    if (!callState.incomingCall || !socket || !user) return;
-
-    try {
-      ringtoneRef.current?.pause();
-      ringtoneRef.current.currentTime = 0;
-
-      const pc = await setupPeerConnection();
-      peerRef.current = pc;
-
-      await pc.setRemoteDescription(new RTCSessionDescription(callState.incomingCall.offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-
-      socket.emit("answer-call", {
-        callId: callState.incomingCall.callId,
-        answer
-      });
-
-      setCallState(prev => ({
-        ...prev,
-        isInCall: true,
-        isCalling: false,
-        incomingCall: null,
-        currentCall: {
-          callId: callState.incomingCall.callId,
-          receiverId: callState.incomingCall.callerId,
-          receiverName: callState.incomingCall.callerName
-        }
-      }));
-
-      toast?.({ title: "Call Connected", description: "You are now in a call" });
-    } catch (error) {
-      cleanUpCall(true);
-      toast?.({ title: "Call Failed", description: error.message, variant: "destructive" });
-    }
-  }, [callState.incomingCall, socket, user, setupPeerConnection, cleanUpCall, toast]);
-
-  const rejectCall = useCallback(() => {
-    if (!callState.incomingCall || !socket) return;
-
-    socket.emit("reject-call", { callId: callState.incomingCall.callId });
+  const acceptCall = useCallback(() => {
+    const { incomingCall } = callState;
+    if (!incomingCall || !socket) return;
 
     ringtoneRef.current?.pause();
     ringtoneRef.current.currentTime = 0;
 
-    setCallState(prev => ({ ...prev, incomingCall: null }));
-  }, [callState.incomingCall, socket]);
+    socket.emit("accept-call", {
+      callId: incomingCall.callId,
+      receiverId: user.id,
+    });
+
+    setCallState((prev) => ({
+      ...prev,
+      isInCall: true,
+      isCalling: false,
+      incomingCall: null,
+      currentCall: {
+        callId: incomingCall.callId,
+        receiverId: incomingCall.callerId,
+        receiverName: incomingCall.callerName,
+      },
+    }));
+  }, [socket, user, callState.incomingCall]);
+
+  const rejectCall = useCallback(() => {
+    const { incomingCall } = callState;
+    if (!incomingCall || !socket) return;
+
+    ringtoneRef.current?.pause();
+    ringtoneRef.current.currentTime = 0;
+
+    socket.emit("reject-call", { callId: incomingCall.callId });
+    setCallState((prev) => ({ ...prev, incomingCall: null }));
+  }, [socket, callState.incomingCall]);
 
   const endCall = useCallback(() => {
     cleanUpCall(true);
   }, [cleanUpCall]);
 
   const toggleMute = useCallback(() => {
-    const newMuteState = !callState.isMuted;
-    localStreamRef.current?.getAudioTracks().forEach(track => {
-      track.enabled = newMuteState;
+    const newState = !callState.isMuted;
+    streamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = !newState;
     });
-    setCallState(prev => ({ ...prev, isMuted: newMuteState }));
+    setCallState((prev) => ({ ...prev, isMuted: newState }));
   }, [callState.isMuted]);
 
   useEffect(() => {
@@ -215,76 +168,99 @@ export function useWebRTC({ socket, user, toast }) {
     ringtoneRef.current = new Audio("/ringtone.mp3");
     ringtoneRef.current.loop = true;
 
-    const handleIncomingCall = ({ callId, callerId, callerName, offer }) => {
-      ringtoneRef.current?.play().catch(console.error);
-      setCallState(prev => ({
+    const handleIncomingCall = ({ callId, callerId, callerName }) => {
+      if (callState.isInCall || callState.isCalling) {
+        socket.emit("reject-call", { callId, reason: "busy" });
+        return;
+      }
+
+      ringtoneRef.current.play().catch(() => {
+        document.addEventListener(
+          "click",
+          function resumeAudio() {
+            ringtoneRef.current.play().catch(console.error);
+            document.removeEventListener("click", resumeAudio);
+          },
+          { once: true }
+        );
+      });
+
+      setCallState((prev) => ({
         ...prev,
-        incomingCall: { callId, callerId, callerName, offer },
+        incomingCall: { callId, callerId, callerName },
+      }));
+
+      toast?.({
+        title: "Incoming Call",
+        description: `From ${callerName}`,
+        duration: 30000,
+      });
+    };
+
+    const handleCallAccepted = ({ callId, receiverId }) => {
+      setCallState((prev) => ({
+        ...prev,
         isCalling: false,
-        isInCall: false
+        isInCall: true,
       }));
     };
 
-    const handleCallMissed = ({ callId }) => {
-      ringtoneRef.current?.pause();
-      ringtoneRef.current.currentTime = 0;
-
-      if (
-        callState.currentCall?.callId === callId ||
-        callState.incomingCall?.callId === callId
-      ) {
-        setCallState(prev => ({
-          ...prev,
-          incomingCall: null,
-          currentCall: null,
-          isCalling: false,
-          isInCall: false
-        }));
-        toast?.({ title: "Call Missed", description: "No one answered the call" });
-      }
+    const handleStartStream = async ({ peerId }) => {
+      await startStreaming(peerId);
     };
 
-    const handleAnswerCall = async ({ answer }) => {
-      if (peerRef.current) {
-        await peerRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-        setCallState(prev => ({ ...prev, isInCall: true, isCalling: false }));
-      }
+    const handleAudioData = (data) => {
+      if (!audioContextRef.current) return;
+      const floatArray = new Float32Array(data);
+      const buffer = audioContextRef.current.createBuffer(
+        1,
+        floatArray.length,
+        audioContextRef.current.sampleRate
+      );
+      buffer.copyToChannel(floatArray, 0);
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContextRef.current.destination);
+      source.start();
     };
 
-    const handleIceCandidate = async ({ candidate }) => {
-      try {
-        if (peerRef.current) {
-          await peerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-      } catch (error) {
-        console.error("ICE candidate error:", error);
-      }
-    };
-
-    const handleCallEnded = ({ reason }) => {
-      ringtoneRef.current?.pause();
-      ringtoneRef.current.currentTime = 0;
+    const handleCallEnded = ({ callId }) => {
+      toast?.({ title: "Call Ended", description: "The call has ended." });
       cleanUpCall(false);
-      toast?.({ title: "Call Ended", description: reason || "Call was ended." });
+    };
+
+    const handleCallStatus = ({ callId, status }) => {
+      if (
+        status === "missed" ||
+        status === "rejected" ||
+        status === "offline"
+      ) {
+        toast?.({
+          title: `Call ${status}`,
+          description: "The call could not be completed.",
+        });
+        cleanUpCall(false);
+      }
     };
 
     socket.on("incoming-call", handleIncomingCall);
-    socket.on("call-missed", handleCallMissed);
-    socket.on("answer-call", handleAnswerCall);
-    socket.on("ice-candidate", handleIceCandidate);
+    socket.on("call-accepted", handleCallAccepted);
+    socket.on("start-stream", handleStartStream);
+    socket.on("audio-data", handleAudioData);
     socket.on("call-ended", handleCallEnded);
+    socket.on("call-status", handleCallStatus);
 
     return () => {
       socket.off("incoming-call", handleIncomingCall);
-      socket.off("call-missed", handleCallMissed);
-      socket.off("answer-call", handleAnswerCall);
-      socket.off("ice-candidate", handleIceCandidate);
+      socket.off("call-accepted", handleCallAccepted);
+      socket.off("start-stream", handleStartStream);
+      socket.off("audio-data", handleAudioData);
       socket.off("call-ended", handleCallEnded);
-
+      socket.off("call-status", handleCallStatus);
       ringtoneRef.current?.pause();
       ringtoneRef.current.currentTime = 0;
     };
-  }, [socket, callState.currentCall?.callId, callState.incomingCall?.callId, cleanUpCall, toast]);
+  }, [socket, toast, cleanUpCall, callState.isCalling, callState.isInCall]);
 
   return {
     callState,
@@ -294,6 +270,6 @@ export function useWebRTC({ socket, user, toast }) {
     rejectCall,
     endCall,
     toggleMute,
-    cleanUpCall
+    cleanUpCall,
   };
 }
