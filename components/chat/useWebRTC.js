@@ -212,7 +212,7 @@ export function useWebRTC({ socket, user, toast }) {
   useEffect(() => {
     if (!socket) return;
 
-    ringtoneRef.current = new Audio("/sounds/custom-ringtone.mp3");
+    ringtoneRef.current = new Audio("/ringtone.mp3");
     ringtoneRef.current.loop = true;
 
     const handleIncomingCall = ({ callId, callerId, callerName, offer }) => {
