@@ -28,9 +28,9 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       ringtoneRef.current.currentTime = 0;
     }
     if (emitEndCall && socket && callState.currentCall?.receiverId) {
-      socket.emit("end-call", { 
+      socket.emit("end-call", {
         callId: callState.currentCall.callId,
-        userId: user.id 
+        userId: user.id
       });
     }
     setCallState(prev => ({
@@ -42,36 +42,36 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
     }));
   }, [socket, user?.id]);
 
-const checkMediaPermissions = useCallback(async () => {
-  try {
-    // Check if mediaDevices is available
-    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-      throw new Error("Media devices API not available");
-    }
+  const checkMediaPermissions = useCallback(async () => {
+    try {
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        throw new Error("Media devices API not available");
+      }
 
-    // Check permissions by trying to enumerate devices
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const hasAudio = devices.some(device => device.kind === 'audioinput');
-    
-    if (!hasAudio) {
-      throw new Error("No microphone found");
+      // Check permissions by trying to enumerate devices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasAudio = devices.some(device => device.kind === 'audioinput');
+
+      if (!hasAudio) {
+        throw new Error("No microphone found");
+      }
+
+      // Test actual microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+
+      return true;
+    } catch (error) {
+      console.error("Media check failed:", error);
+      throw error;
     }
-    
-    // Test actual microphone access
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach(track => track.stop());
-    
-    return true;
-  } catch (error) {
-    console.error("Media check failed:", error);
-    throw error;
-  }
-}, []);
+  }, []);
 
   const setupPeerConnection = useCallback(async () => {
     try {
       await checkMediaPermissions();
-      
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -97,8 +97,9 @@ const checkMediaPermissions = useCallback(async () => {
       pc.onicecandidate = (event) => {
         if (event.candidate && callState.currentCall?.receiverId) {
           socket.emit("ice-candidate", {
-            receiverId: callState.currentCall.receiverId,
+            callId: callState.currentCall.callId,
             candidate: event.candidate,
+            targetId: callState.currentCall.receiverId
           });
         }
       };
@@ -126,27 +127,27 @@ const checkMediaPermissions = useCallback(async () => {
     if (!socket || !user || callState.isInCall || callState.isCalling) return;
 
     try {
-      setCallState(prev => ({
-        ...prev,
-        isCalling: true,
-        currentCall: {
-          callId: `call_${Date.now()}_${user.id}_${friendId}`,
-          receiverId: friendId,
-          receiverName: friendName
-        }
-      }));
-
       const pc = await setupPeerConnection();
       peerRef.current = pc;
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      setCallState(prev => ({
+        ...prev,
+        isCalling: true,
+        currentCall: {
+          callId: `call_${Date.now()}_${user.id}_${friendId}`,
+          receiverId: friendId,
+          receiverName: friendName,
+          offer: offer
+        }
+      }));
+
       socket.emit("call-user", {
-        callerId: user.id,
         receiverId: friendId,
         callerName: user.name,
-        offer
+        offer: offer
       });
 
     } catch (error) {
@@ -180,7 +181,7 @@ const checkMediaPermissions = useCallback(async () => {
       await pc.setLocalDescription(answer);
 
       socket.emit("answer-call", {
-        callerId: callState.incomingCall.callerId,
+        callId: callState.incomingCall.callId,
         answer: answer
       });
 
@@ -315,14 +316,14 @@ const checkMediaPermissions = useCallback(async () => {
     };
 
     socket.on("incoming-call", handleIncomingCall);
-    socket.on("call-answered", handleCallAccepted);
+    socket.on("call-accepted", handleCallAccepted);
     socket.on("call-rejected", handleCallRejected);
     socket.on("call-ended", handleCallEnded);
     socket.on("ice-candidate", handleIceCandidate);
 
     return () => {
       socket.off("incoming-call", handleIncomingCall);
-      socket.off("call-answered", handleCallAccepted);
+      socket.off("call-accepted", handleCallAccepted);
       socket.off("call-rejected", handleCallRejected);
       socket.off("call-ended", handleCallEnded);
       socket.off("ice-candidate", handleIceCandidate);
