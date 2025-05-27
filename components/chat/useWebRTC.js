@@ -27,7 +27,7 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       ringtoneRef.current.pause();
       ringtoneRef.current.currentTime = 0;
     }
-    if (emitEndCall && socket && callState.currentCall?.receiverId) {
+    if (emitEndCall && socket && callState.currentCall?.callId) {
       socket.emit("end-call", {
         callId: callState.currentCall.callId,
         userId: user.id
@@ -38,9 +38,10 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       isInCall: false,
       isCalling: false,
       incomingCall: null,
-      currentCall: null
+      currentCall: null,
+      isMuted: false
     }));
-  }, [socket, user?.id]);
+  }, [socket, user?.id, callState.currentCall?.callId]);
 
   const checkMediaPermissions = useCallback(async () => {
     try {
@@ -133,21 +134,25 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      const callId = `call_${Date.now()}_${user.id}_${friendId}`;
+      
       setCallState(prev => ({
         ...prev,
         isCalling: true,
         currentCall: {
-          callId: `call_${Date.now()}_${user.id}_${friendId}`,
+          callId,
           receiverId: friendId,
           receiverName: friendName,
           offer: offer
         }
       }));
 
+      console.log("Starting call to", friendId, "with offer:", offer);
       socket.emit("call-user", {
         receiverId: friendId,
         callerName: user.name,
-        offer: offer
+        offer: offer,
+        callId: callId
       });
 
     } catch (error) {
@@ -173,6 +178,7 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       const pc = await setupPeerConnection();
       peerRef.current = pc;
 
+      console.log("Accepting call with offer:", callState.incomingCall.offer);
       await pc.setRemoteDescription(
         new RTCSessionDescription(callState.incomingCall.offer)
       );
@@ -180,6 +186,7 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
+      console.log("Sending answer:", answer);
       socket.emit("answer-call", {
         callId: callState.incomingCall.callId,
         answer: answer
@@ -275,9 +282,10 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
       });
     };
 
-    const handleCallAccepted = async ({ answer }) => {
+    const handleAnswerCall = async ({ answer }) => {
       if (peerRef.current && callState.isCalling) {
         try {
+          console.log("Received answer:", answer);
           await peerRef.current.setRemoteDescription(
             new RTCSessionDescription(answer)
           );
@@ -316,20 +324,20 @@ export function useWebRTC({ socket, user, selectedFriend, toast }) {
     };
 
     socket.on("incoming-call", handleIncomingCall);
-    socket.on("call-accepted", handleCallAccepted);
+    socket.on("answer-call", handleAnswerCall);
     socket.on("call-rejected", handleCallRejected);
     socket.on("call-ended", handleCallEnded);
     socket.on("ice-candidate", handleIceCandidate);
 
     return () => {
       socket.off("incoming-call", handleIncomingCall);
-      socket.off("call-accepted", handleCallAccepted);
+      socket.off("answer-call", handleAnswerCall);
       socket.off("call-rejected", handleCallRejected);
       socket.off("call-ended", handleCallEnded);
       socket.off("ice-candidate", handleIceCandidate);
       cleanUpCall(false);
     };
-  }, [socket, user, cleanUpCall, toast]);
+  }, [socket, user, cleanUpCall, toast, callState.isCalling]);
 
   return {
     callState,
