@@ -1,4 +1,4 @@
-"use client"
+"use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
@@ -13,13 +13,13 @@ export default function ChatLayout() {
   const router = useRouter();
   const { toast } = useToast();
   const { user, logout } = useAuthStore();
-  const { 
+  const {
     selectedFriend,
     setSelectedFriend,
     messages,
     setMessages,
     addMessage,
-    friends
+    friends,
   } = useChatStore();
   const [socket, setSocket] = useState(null);
   const [socketConnected, setSocketConnected] = useState(false);
@@ -33,13 +33,14 @@ export default function ChatLayout() {
     addMessage,
     setMessages,
     toast,
-    setSelectedFriend
+    setSelectedFriend,
   });
 
   useEffect(() => {
     if (!user) return;
 
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "https://qh48y3-3005.csb.app";
+    const socketUrl =
+      process.env.NEXT_PUBLIC_SOCKET_URL || "https://tillerbd.com:8030";
     const s = io(socketUrl, {
       auth: { userId: user.id },
       transports: ["websocket", "polling"],
@@ -55,12 +56,20 @@ export default function ChatLayout() {
 
     s.on("connect_error", (err) => {
       setSocketConnected(false);
-      toast({ title: "Connection error", description: err.message, variant: "destructive" });
+      toast({
+        title: "Connection error",
+        description: err.message,
+        variant: "destructive",
+      });
     });
 
     s.on("disconnect", (reason) => {
       setSocketConnected(false);
-      toast({ title: "Disconnected", description: reason, variant: "destructive" });
+      toast({
+        title: "Disconnected",
+        description: reason,
+        variant: "destructive",
+      });
     });
 
     setSocket(s);
@@ -82,13 +91,15 @@ export default function ChatLayout() {
 
   return (
     <div className="flex h-screen bg-background relative overflow-hidden">
-      <div className={`
+      <div
+        className={`
         fixed inset-y-0 left-0 z-50
         w-80 h-full bg-card shadow-xl transition-transform duration-300 ease-in-out
         transform ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}
         sm:translate-x-0 sm:relative sm:w-80 sm:block
         rounded-r-2xl sm:rounded-none sm:shadow-none
-      `}>
+      `}
+      >
         <Sidebar
           onLogout={handleLogout}
           onSelectFriend={(friend) => {
